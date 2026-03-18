@@ -355,37 +355,63 @@
       if (!datasetId) { setStatus("⚠️ Please enter a Dataset ID."); return; }
 
       btn.disabled = true;
-      setStatus("Fetching data from Stats Wales API…", true);
+      setStatus("Loading data…", true);
 
       // Hide previous results
       ["summary-cards","chart-card","table-card"].forEach(id => {
         document.getElementById(id).style.display = "none";
       });
 
-      try {
-        const url = buildApiUrl(datasetId, area, year);
-        const response = await fetch(url);
+      let rows = null;
+      let source = "unknown";
 
-        if (!response.ok) {
-          throw new Error(`API returned ${response.status}: ${response.statusText}`);
+      try {
+        // Step 1: Try loading from exported data.json (local file, much faster & reliable)
+        try {
+          setStatus("Trying local data.json…", true);
+          console.log("Attempting to load from data.json");
+          const response = await fetch("./data.json");
+          
+          if (response.ok) {
+            rows = await response.json();
+            source = "exported data file";
+            console.log("✅ Successfully loaded from data.json:", rows.length, "records");
+          }
+        } catch (localErr) {
+          console.log("data.json not found or failed to load, falling back to API:", localErr);
         }
 
-        const json = await response.json();
-        const rows = Array.isArray(json) ? json : (json.value || json.items || []);
+        // Step 2: If data.json failed, try the live API
+        if (!rows || rows.length === 0) {
+          setStatus("Loading from Stats Wales API…", true);
+          console.log("Fetching from API with Dataset ID:", datasetId);
+          
+          const url = buildApiUrl(datasetId, area, year);
+          const response = await fetch(url);
 
-        if (!rows.length) {
-          setStatus("⚠️ No data returned. Try adjusting the filters.");
+          if (!response.ok) {
+            throw new Error(`API returned ${response.status}: ${response.statusText}`);
+          }
+
+          const json = await response.json();
+          rows = Array.isArray(json) ? json : (json.value || json.items || []);
+          source = "Stats Wales API";
+          console.log("✅ Successfully loaded from API:", rows.length, "records");
+        }
+
+        if (!rows || rows.length === 0) {
+          setStatus("⚠️ No data returned. Try adjusting the filters or check the Dataset ID.");
           return;
         }
 
-        setStatus(`✅ Loaded ${rows.length} records from Stats Wales.`);
+        setStatus(`✅ Loaded ${rows.length} records from ${source}`);
         renderSummaryCards(rows);
         renderChart(rows);
         renderTable(rows);
 
       } catch (err) {
-        setStatus(`❌ Error: ${err.message}. Check the Dataset ID and try again.`);
-        console.error(err);
+        setStatus(`❌ Error: ${err.message}. \n\nTip: Run the workshop notebook to regenerate data.json, or check that the Dataset ID is valid.`);
+        console.error("Full error:", err);
       } finally {
         btn.disabled = false;
       }

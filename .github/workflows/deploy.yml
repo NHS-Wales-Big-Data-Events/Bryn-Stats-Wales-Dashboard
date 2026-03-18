@@ -1,0 +1,74 @@
+name: Deploy Dashboard with Data Export
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  workflow_dispatch: # Allow manual runs
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Set up Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: "3.12"
+          cache: "pip"
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install jupyter nbconvert pandas requests matplotlib
+
+      - name: Run notebook to export data
+        run: |
+          cd workshop
+          jupyter nbconvert --to notebook --execute workshop.ipynb \
+            --output workshop_executed.ipynb \
+            --ExecutePreprocessor.timeout=300 \
+            --allow-errors || true
+          cd ..
+
+      - name: Verify data.json was created
+        run: |
+          if [ -f "docs/data.json" ]; then
+            echo "✅ data.json exists"
+            echo "File size: $(wc -c < docs/data.json) bytes"
+            echo "Sample: $(head -c 200 docs/data.json)"
+          else
+            echo "❌ WARNING: data.json was not created"
+          fi
+
+      - name: Verify chart.png was created
+        run: |
+          if [ -f "docs/chart.png" ]; then
+            echo "✅ chart.png exists"
+            echo "File size: $(wc -c < docs/chart.png) bytes"
+          else
+            echo "❌ WARNING: chart.png was not created"
+          fi
+
+      - name: Commit changes
+        run: |
+          git config user.name "GitHub Actions"
+          git config user.email "actions@github.com"
+          git add -A
+          git diff --cached --quiet || (
+            git commit -m "chore: regenerate data.json and chart.png" && 
+            git push
+          )
+
+      - name: Deploy to GitHub Pages
+        uses: peaceiris/actions-gh-pages@v3
+        if: github.ref == 'refs/heads/main' && github.event_name == 'push'
+        with:
+          github_token: ${{ secrets.GITHUB_TOKEN }}
+          publish_dir: ./docs
+          force_orphan: false
